@@ -6,11 +6,11 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.linear_model import LogisticRegression
 
-TARGET_COL = "DEFASADO"
+TARGET_COL = "ALTO_INDE"
 
 NUMERICAL_FEATURES = [
-    "INDE", "IAA", "IEG", "IPS", "IDA", "IPP", "IPV", "IAN",
-    "ALTO_INDE", "NOTA_MEDIA", "TEMPO_PM", "PEDRA_ORDINAL"
+    "IAA", "IEG", "IPS", "IDA", "IPP", "IPV", "IAN",
+    "DEFASADO", "NOTA_MEDIA", "TEMPO_PM"
 ]
 
 CATEGORICAL_FEATURES = [

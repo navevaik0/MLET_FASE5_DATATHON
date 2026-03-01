@@ -23,10 +23,10 @@ def encode_pedra(df):
     return df
 
 def create_basic_features(df):
-    df["DEFASADO"] = (df["DEFASAGEM"] > 0).astype(int)
+    df["DEFASADO"] = (df["DEFASAGEM"] < 0).astype(int)
     df["NOTA_MEDIA"] = df[["NOTA_PORT", "NOTA_MAT", "NOTA_ING"]].mean(axis=1)
     df["TEMPO_PM"] = df["ANO_BASE"] - df["ANO_INGRESSO"]
-    df["ALTO_INDE"] = (df["INDE"] >= 0.7).astype(int)
+    df["ALTO_INDE"] = (df["INDE"] >= 7).astype(int)
     return df
 
 CATEGORICAL_FEATURES = [

@@ -184,6 +184,17 @@ column_mapping = {
     }
 }
 
+NUMERIC_COLS = [
+    "INDE", "IAA", "IEG", "IPS", "IDA", "IPP", "IPV", "IAN",
+    "DEFASAGEM", "NOTA_PORT", "NOTA_MAT", "NOTA_ING",
+    "ANO_INGRESSO", "QTDE_AVAL"
+]
+
+CATEGORICAL_COLS = [
+    "FASE", "TURMA", "PEDRA", "NIVEL_IDEAL"
+]
+
+#### FUNÇÕES
 def padronizar_colunas(
     df: pd.DataFrame,
     column_map: dict,
