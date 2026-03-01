@@ -1,5 +1,5 @@
 import pandas as pd
-import re
+from typing import List, Tuple, Dict
 
 dicionario_dados = {
    "NOME":"Nome do aluno (dados anonimizados)",
@@ -41,6 +41,38 @@ dicionario_dados = {
    "QTDE_AVAL":"Quantidade de avaliações realizadas",
 }
 
+EXPECTED_SCHEMA = {
+    "NOME": "string",
+    "INSTITUICAO_ENSINO_ALUNO": "string",
+    "IDADE_ALUNO": "int",
+    "FASE": "string",
+    "INDE": "float",
+    "PEDRA": "string",
+    "IAA": "float",
+    "IEG": "float",
+    "IPS": "float",
+    "IDA": "float",
+    "IPP": "float",
+    "IPV": "float",
+    "IAN": "float",
+    "TURMA": "string",
+    "REC_PSICO": "string",
+    "REC_AVAL_1": "string",
+    "REC_AVAL_2": "string",
+    "REC_AVAL_3": "string",
+    "REC_AVAL_4": "string",
+    "NIVEL_IDEAL": "string",
+    "DEFASAGEM": "float",
+    "ANO_INGRESSO": "int",
+    "CG": "float",
+    "CF": "float",
+    "CT": "float",
+    "NOTA_PORT": "float",
+    "NOTA_MAT": "float",
+    "NOTA_ING": "float",
+    "QTDE_AVAL": "int",
+    "ANO_BASE": "int",
+}
 
 column_mapping = {
     2022: {
@@ -203,7 +235,7 @@ def padronizar_colunas(
 
     # se ano for especificado, adicionar coluna de origem
     if year is not None:
-        df_padronizado["ANO_BASE"] = str(year)
+        df_padronizado["ANO_BASE"] = int(year)
 
     # colunas originais que não apareceram no mapeamento são excluídas
     resumo['excluidas'] = [c for c in cols_originais if c not in valid_map]
@@ -213,3 +245,108 @@ def padronizar_colunas(
     else:
         return df_padronizado
 
+def enforce_schema(df: pd.DataFrame, schema: dict, strict: bool = False):
+    df = df.copy()
+    errors = []
+
+    for col, dtype in schema.items():
+        if col not in df.columns:
+            msg = f"Coluna ausente: {col}"
+            if strict:
+                raise ValueError(msg)
+            errors.append(msg)
+            continue
+
+        try:
+            if dtype == "int":
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+            elif dtype == "float":
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            elif dtype == "string":
+                df[col] = df[col].astype("string")
+        except Exception as e:
+            errors.append(f"Erro ao converter {col}: {e}")
+
+    return df, errors
+
+def fix_idade(df: pd.DataFrame):
+    if pd.api.types.is_datetime64_any_dtype(df["IDADE_ALUNO"]):
+        df["IDADE_ALUNO"] = (df["IDADE_ALUNO"] - pd.Timestamp("1900-01-01")).dt.days
+    return df
+
+
+def handle_missing_values(
+    df: pd.DataFrame,
+    numeric_cols: List[str],
+    categorical_cols: List[str],
+    add_missing_flags: bool = True
+) -> Tuple[pd.DataFrame, Dict]:
+    """
+    Trata valores nulos em colunas numéricas e categóricas.
+
+    - Numéricas: preenche com a mediana
+    - Categóricas: preenche com 'DESCONHECIDO'
+    - Opcional: cria flags *_MISSING para colunas com nulos
+
+    Retorna:
+      - DataFrame tratado
+      - Dicionário com resumo das imputações
+    """
+
+    df = df.copy()
+    summary = {
+        "numeric_imputed": {},
+        "categorical_imputed": {},
+        "missing_flags_created": []
+    }
+
+    # -------------------------
+    # Numéricas
+    # -------------------------
+    for col in numeric_cols:
+        if col not in df.columns:
+            continue
+
+        n_missing = df[col].isna().sum()
+        if n_missing > 0:
+            median_value = df[col].median()
+            df[col] = df[col].fillna(median_value)
+
+            summary["numeric_imputed"][col] = {
+                "missing_count": int(n_missing),
+                "imputed_with": float(median_value)
+            }
+
+            if add_missing_flags:
+                flag_col = f"{col}_MISSING"
+                df[flag_col] = (df[col].isna()).astype(int)
+                summary["missing_flags_created"].append(flag_col)
+
+    # -------------------------
+    # Categóricas
+    # -------------------------
+    for col in categorical_cols:
+        if col not in df.columns:
+            continue
+
+        n_missing = df[col].isna().sum()
+        if n_missing > 0:
+            df[col] = df[col].fillna("DESCONHECIDO")
+
+            summary["categorical_imputed"][col] = {
+                "missing_count": int(n_missing),
+                "imputed_with": "DESCONHECIDO"
+            }
+
+            if add_missing_flags:
+                flag_col = f"{col}_MISSING"
+                df[flag_col] = (df[col] == "DESCONHECIDO").astype(int)
+                summary["missing_flags_created"].append(flag_col)
+    
+    # Flags informativas
+    for col in ["CF", "CT"]:
+        if col in df.columns:
+            df[f"{col}_MISSING"] = df[col].isna().astype(int)
+            df[col] = df[col].fillna(-1)
+
+    return df, summary
