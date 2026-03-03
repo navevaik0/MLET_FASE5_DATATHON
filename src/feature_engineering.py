@@ -28,14 +28,3 @@ def create_basic_features(df):
     df["TEMPO_PM"] = df["ANO_BASE"] - df["ANO_INGRESSO"]
     df["ALTO_INDE"] = (df["INDE"] >= 7).astype(int)
     return df
-
-CATEGORICAL_FEATURES = [
-    "FASE",
-    "TURMA",
-    "IDADE_FAIXA"
-]
-
-NUMERICAL_FEATURES = [
-    "INDE", "IAA", "IEG", "IPS", "IDA", "IPP", "IPV", "IAN",
-    "DEFASAGEM", "NOTA_MEDIA", "TEMPO_PM", "PEDRA_ORDINAL"
-]

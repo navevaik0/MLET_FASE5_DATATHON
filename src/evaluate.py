@@ -1,51 +1,53 @@
+from typing import Dict, Tuple
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from sklearn.metrics import (
-    classification_report,
-    confusion_matrix,
-    roc_auc_score,
-    roc_curve,
-    precision_recall_curve,
     accuracy_score,
     precision_score,
     recall_score,
-    f1_score
+    f1_score,
+    roc_auc_score,
+    classification_report,
+    confusion_matrix,
+    roc_curve,
+    precision_recall_curve
 )
 
-def evaluate_metrics(model, X_test, y_test):
+def compute_metrics(
+    y_true: pd.Series,
+    y_pred: np.ndarray,
+    y_proba: np.ndarray
+) -> Dict[str, float]:
     """
-    Retorna métricas principais em formato tabular.
+    Calcula métricas principais de classificação binária.
     """
-    y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1]
 
-    metrics = {
-        "accuracy": accuracy_score(y_test, y_pred),
-        "precision": precision_score(y_test, y_pred, zero_division=0),
-        "recall": recall_score(y_test, y_pred, zero_division=0),
-        "f1_score": f1_score(y_test, y_pred, zero_division=0),
-        "roc_auc": roc_auc_score(y_test, y_proba),
+    return {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, zero_division=0),
+        "recall": recall_score(y_true, y_pred, zero_division=0),
+        "f1_score": f1_score(y_true, y_pred, zero_division=0),
+        "roc_auc": roc_auc_score(y_true, y_proba),
     }
 
-    metrics_df = (
+def metrics_to_dataframe(metrics: Dict[str, float]) -> pd.DataFrame:
+    return (
         pd.DataFrame(metrics, index=["value"])
         .T
         .reset_index()
         .rename(columns={"index": "metric"})
     )
 
-    return metrics_df
-
-def classification_report_df(model, X_test, y_test):
-    """
-    Retorna classification report em DataFrame.
-    """
-    y_pred = model.predict(X_test)
+def classification_report_df(
+    y_true: pd.Series,
+    y_pred: np.ndarray
+) -> pd.DataFrame:
 
     report = classification_report(
-        y_test,
+        y_true,
         y_pred,
         output_dict=True,
         zero_division=0
@@ -58,63 +60,73 @@ def classification_report_df(model, X_test, y_test):
         .rename(columns={"index": "label"})
     )
 
-def plot_confusion_matrix(model, X_test, y_test):
-    y_pred = model.predict(X_test)
-    cm = confusion_matrix(y_test, y_pred)
+
+def plot_confusion_matrix(y_true, y_pred):
+    cm = confusion_matrix(y_true, y_pred)
 
     fig, ax = plt.subplots(figsize=(5, 4))
-    im = ax.imshow(cm, cmap="Blues")
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        cbar=True,
+        ax=ax
+    )
 
     ax.set_xlabel("Predito")
     ax.set_ylabel("Real")
     ax.set_title("Matriz de Confusão")
 
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            ax.text(j, i, cm[i, j], ha="center", va="center")
+    return fig
 
-    plt.colorbar(im)
-    plt.tight_layout()
-    plt.show()
+def plot_roc_curve(y_true, y_proba):
+    fpr, tpr, _ = roc_curve(y_true, y_proba)
+    auc = roc_auc_score(y_true, y_proba)
 
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.plot(fpr, tpr, label=f"AUC = {auc:.3f}")
+    ax.plot([0, 1], [0, 1], linestyle="--")
 
-def plot_roc_curve(model, X_test, y_test):
+    ax.set_xlabel("FPR")
+    ax.set_ylabel("TPR")
+    ax.set_title("Curva ROC")
+    ax.legend()
+    ax.grid(True)
+
+    return fig
+
+def plot_precision_recall_curve(y_true, y_proba):
+    precision, recall, _ = precision_recall_curve(y_true, y_proba)
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.plot(recall, precision)
+
+    ax.set_xlabel("Recall")
+    ax.set_ylabel("Precision")
+    ax.set_title("Precision-Recall Curve")
+    ax.grid(True)
+
+    return fig
+
+def evaluate_model(
+    model,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    plot: bool = False
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, float]]:
+
+    y_pred = model.predict(X_test)
     y_proba = model.predict_proba(X_test)[:, 1]
-    fpr, tpr, _ = roc_curve(y_test, y_proba)
-    auc = roc_auc_score(y_test, y_proba)
 
-    plt.figure(figsize=(6, 4))
-    plt.plot(fpr, tpr, label=f"ROC AUC = {auc:.3f}")
-    plt.plot([0, 1], [0, 1], linestyle="--")
+    metrics = compute_metrics(y_test, y_pred, y_proba)
 
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title("Curva ROC")
-    plt.legend()
-    plt.grid(True)
-    plt.show()    
+    metrics_df = metrics_to_dataframe(metrics)
+    report_df = classification_report_df(y_test, y_pred)
 
-def plot_proba_distribution(model, X_test, y_test):
-    y_proba = model.predict_proba(X_test)[:, 1]
+    if plot:
+        plot_confusion_matrix(y_test, y_pred)
+        plot_roc_curve(y_test, y_proba)
+        plot_precision_recall_curve(y_test, y_proba)
 
-    plt.figure(figsize=(6, 4))
-    plt.hist(y_proba[y_test == 0], bins=30, alpha=0.6, label="Classe 0")
-    plt.hist(y_proba[y_test == 1], bins=30, alpha=0.6, label="Classe 1")
-
-    plt.xlabel("Probabilidade predita")
-    plt.ylabel("Frequência")
-    plt.title("Distribuição das Probabilidades")
-    plt.legend()
-    plt.show()
-
-def plot_precision_recall_curve(model, X_test, y_test):
-    y_proba = model.predict_proba(X_test)[:, 1]
-    precision, recall, _ = precision_recall_curve(y_test, y_proba)
-
-    plt.figure(figsize=(6, 4))
-    plt.plot(recall, precision)
-    plt.xlabel("Recall")
-    plt.ylabel("Precision")
-    plt.title("Precision-Recall Curve")
-    plt.grid(True)
-    plt.show()
+    return metrics_df, report_df, metrics
