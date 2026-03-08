@@ -70,7 +70,6 @@ def build_model(
         clf = XGBClassifier(
             n_estimators=200,
             eval_metric="logloss",
-            use_label_encoder=False,
             random_state=42
         )
 
@@ -141,6 +140,36 @@ def train_model(
     model = build_model(
         numeric_features=numeric_features,
         categorical_features=categorical_features
+    )
+
+    model.fit(X_train, y_train)
+
+    return model, X_train, X_test, y_train, y_test
+
+def train_champion_model(
+    df: pd.DataFrame,
+    numeric_features: List[str],
+    categorical_features: List[str],
+    target_col: str,
+    test_year: int,
+    year_col: str = "ANO_BASE",
+    model_type: str = "xgboost"
+):
+    """
+    Executa split temporal + treino.
+    """
+
+    X_train, X_test, y_train, y_test = temporal_train_test_split(
+        df=df,
+        target_col=target_col,
+        test_year=test_year,
+        year_col=year_col
+    )
+
+    model = build_model(
+        numeric_features=numeric_features,
+        categorical_features=categorical_features,
+        model_type=model_type
     )
 
     model.fit(X_train, y_train)

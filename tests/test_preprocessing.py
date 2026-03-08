@@ -123,3 +123,21 @@ def test_enforce_schema_int_invalido_vira_na():
 
     assert errors == []
     assert pd.isna(df_out["IDADE"].iloc[1])
+
+def test_split_feature_types():
+
+    df = pd.DataFrame({
+        "idade": [10, 12, 14],
+        "nota": [7.5, 8.0, 9.0],
+        "turma": ["A", "B", "A"],
+        "target": [0, 1, 1]
+    })
+
+    numeric_cols, categorical_cols = split_feature_types(
+        df,
+        target_col="target"
+    )
+
+    assert "idade" in numeric_cols
+    assert "nota" in numeric_cols
+    assert "turma" in categorical_cols

@@ -11,14 +11,45 @@ def test_encode_pedra_cria_coluna_ordinal():
     assert "PEDRA_ORDINAL" in df_encoded.columns
     assert df_encoded["PEDRA_ORDINAL"].notna().all()
 
-def test_bin_idade_cria_coluna():
+def test_bin_cria_coluna():
     df = pd.DataFrame({
         "IDADE_ALUNO": [10, 15, 18]
     })
 
-    df_out = bin_idade(df)
+    df_out, binning_dict = create_numeric_binning(df, numeric_cols=["IDADE_ALUNO"])
 
-    assert "IDADE_FAIXA" in df_out.columns
+    assert "CAT_IDADE_ALUNO" in df_out.columns
+    assert "IDADE_ALUNO" not in df_out.columns
+    assert "IDADE_ALUNO" in binning_dict
+
+def test_bin_aplica_coluna():
+    df = pd.DataFrame({
+        "IDADE_ALUNO": [10, 15, 18]
+    })
+
+    binning_dict = {
+        "IDADE_ALUNO": [10, 12, 14, 16, 18, 20]
+    }
+
+    df_out = apply_numeric_binning(df, binning_dict)
+
+    assert "CAT_IDADE_ALUNO" in df_out.columns
+    assert "IDADE_ALUNO" not in df_out.columns
+
+
+def test_binning_valores_iguais():
+
+    df = pd.DataFrame({
+        "IDADE_ALUNO": [10,10,10,10]
+    })
+
+    df_out, binning_dict = create_numeric_binning(
+        df,
+        numeric_cols=["IDADE_ALUNO"],
+        bins=5
+    )
+
+    assert "CAT_IDADE_ALUNO" in df_out.columns
 
 def test_create_basic_feature_cria_coluna():
     df = pd.DataFrame({
@@ -33,4 +64,4 @@ def test_create_basic_feature_cria_coluna():
 
     df_out = create_basic_features(df)
 
-    assert "DEFASADO" in df_out.columns    
+    assert "DEFASADO" in df_out.columns 

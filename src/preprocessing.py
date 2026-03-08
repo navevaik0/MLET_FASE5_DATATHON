@@ -361,3 +361,27 @@ def handle_missing_values(
             df[col] = df[col].fillna(-1)
 
     return df, summary
+
+def split_feature_types(df: pd.DataFrame, target_col: str = None):
+    """
+    Separa automaticamente variáveis numéricas e categóricas
+    com base no dtype do pandas.
+    """
+
+    numeric_cols = df.select_dtypes(
+        include=["int64", "float64", "Int64", "Int32", "int32", "float32"]
+    ).columns.tolist()
+
+    categorical_cols = df.select_dtypes(
+        include=["object", "category", "string", "bool"]
+    ).columns.tolist()
+
+    if target_col:
+
+        if target_col in numeric_cols:
+            numeric_cols.remove(target_col)
+
+        if target_col in categorical_cols:
+            categorical_cols.remove(target_col)
+
+    return numeric_cols, categorical_cols
