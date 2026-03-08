@@ -73,6 +73,9 @@ def apply_numeric_binning(
 
     for col, edges in binning_dict.items():
 
+        if col not in df_out.columns:
+            continue
+
         df_out[f"CAT_{col}"] = np.digitize(
             df[col],
             bins=edges[1:-1],

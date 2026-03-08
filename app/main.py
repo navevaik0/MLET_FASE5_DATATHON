@@ -3,7 +3,7 @@ from app.routes import router
 
 app = FastAPI(
     title="PEDE ML API",
-    description="API de predição de desempenho educacional (ALTO_INDE)",
+    description="API de predição de defasagem educacional",
     version="1.0.0"
 )
 

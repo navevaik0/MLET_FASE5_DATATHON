@@ -34,13 +34,13 @@ files = [f for f in data_dir.glob("*.xlsx") if not f.name.startswith("~$")]
 
 data_path = data_dir / "data_processed.parquet"
 
-#Carrega as variáveis finalistas
-numeric_cols = load_list(artifacts_dir / "numeric_cols_cat.json")
-categorical_cols = load_list(artifacts_dir / "categorical_cols.json")
-
 def main():
 
     data_processing()
+
+    #Carrega as variáveis
+    numeric_cols = load_list(artifacts_dir / "numeric_cols_cat.json")
+    categorical_cols = load_list(artifacts_dir / "categorical_cols.json")
 
     for file in files:
      df = pd.read_excel(file, engine="openpyxl")
@@ -80,9 +80,18 @@ def main():
     print(f"\nFeatures finais: {features_numeric_final}")
 
     categorical_cols_final = [c for c in categorical_cols if c in ['FASE', 'TURMA']]
+    numeric_cols_final = [c.removeprefix("CAT_") for c in features_numeric_final]
 
     print(f"\nColunas categóricas finais: {categorical_cols_final}")
     print(f"\nColunas numéricas finais: {features_numeric_final}")
+
+
+    #Salva dicionário com variáveis finalistas
+    save_list(numeric_cols_final, artifacts_dir / "numeric_final.json")
+    save_list(categorical_cols_final, artifacts_dir / "categorical_final.json")
+
+
+    print("\nIniciando treinamento do modelo...")
 
     # Cria DF do modelo
     df_model = df.copy()
@@ -154,6 +163,8 @@ def main():
         artifacts_dir / "test_data.parquet",
         engine="pyarrow"
     )
+
+    train_df.to_csv(data_dir/'reference.csv', index=False)
 
     metrics_df_champion, _, metrics_dict_champion = evaluate_model(
         final_model,

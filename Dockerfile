@@ -8,10 +8,10 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # copiar requirements primeiro (cache do docker)
-COPY requirements.txt .
+COPY requirements_prod.txt .
 
 # instalar dependências
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements_prod.txt
 
 # copiar projeto inteiro
 COPY . .

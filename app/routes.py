@@ -8,13 +8,15 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from src.utils import *
+from src.feature_engineering import *
 router = APIRouter()
 
 # --------------------------------------------------
 # CARREGAR MODELO
 # --------------------------------------------------
 
-MODEL_PATH = Path("artifacts/model_v1.joblib")
+MODEL_PATH = Path("app/model/model_champion.joblib")
 
 if not MODEL_PATH.exists():
     raise FileNotFoundError(f"Modelo não encontrado em {MODEL_PATH}")
@@ -27,18 +29,20 @@ print(f"Modelo carregado com sucesso: {MODEL_PATH}")
 # CONFIGURAÇÕES
 # --------------------------------------------------
 
-EXPECTED_FEATURES = [
-    "IAA","IEG","IPS","IDA","IPP","IPV","IAN",
-    "DEFASAGEM","NOTA_PORT","NOTA_MAT","NOTA_ING",
-    "ANO_INGRESSO","QTDE_AVAL","FASE","TURMA"
-]
+artifacts_dir = Path("./artifacts")
 
-CATEGORICAL_FEATURES = ["FASE","TURMA"]
+#Carrega as variáveis finalistas
+numeric_cols = load_list(artifacts_dir / "numeric_final.json")
+categorical_cols = load_list(artifacts_dir / "categorical_final.json")
 
-LOG_PATH = Path("logs")
+expected_features = numeric_cols + categorical_cols
+
+categorical_cols = categorical_cols
+
+LOG_PATH = Path("./logs")
 LOG_PATH.mkdir(exist_ok=True)
 
-MONITORING_PATH = Path("monitoring")
+MONITORING_PATH = Path("./monitoring")
 MONITORING_PATH.mkdir(exist_ok=True)
 
 PREDICTION_LOG = LOG_PATH / "predictions.json"
@@ -60,38 +64,46 @@ start_time = datetime.now()
 
 class StudentInput(BaseModel):
 
+    IDADE_ALUNO: int
+    ANO_INGRESSO: int
+    CG: float
+    CF: float
+    CT: float
+    QTDE_AVAL: int
     IAA: float
     IEG: float
     IPS: float
-    IDA: float
-    IPP: float
-    IPV: float
-    IAN: float
-    DEFASAGEM: float
-    NOTA_PORT: float
     NOTA_MAT: float
+    NOTA_PORT: float
     NOTA_ING: float
-    ANO_INGRESSO: int
-    QTDE_AVAL: int
+    IPV: float
+    IPP: float
+    PEDRA_ORDINAL: int
+    NOTA_MEDIA: float
+    TEMPO_PM: int
     FASE: str
     TURMA: str
 
     class Config:
         json_schema_extra = {
             "example": {
+                "IDADE_ALUNO": 20,
+                "ANO_INGRESSO": 2022,
+                "CG": 8.5,
+                "CF": 7.8,
+                "CT": 8.2,
+                "QTDE_AVAL": 4,
                 "IAA": 7.5,
                 "IEG": 6.8,
                 "IPS": 7.1,
-                "IDA": 6.9,
-                "IPP": 7.0,
+                "NOTA_MAT": 7.0,
+                "NOTA_PORT": 8.0,
+                "NOTA_ING": 7.0,
                 "IPV": 6.5,
-                "IAN": 7.2,
-                "DEFASAGEM": 0,
-                "NOTA_PORT": 8,
-                "NOTA_MAT": 7,
-                "NOTA_ING": 7,
-                "ANO_INGRESSO": 2022,
-                "QTDE_AVAL": 4,
+                "IPP": 7.0,
+                "PEDRA_ORDINAL": 1,
+                "NOTA_MEDIA": 7.5,
+                "TEMPO_PM": 5,
                 "FASE": "2",
                 "TURMA": "A"
             }
@@ -106,8 +118,8 @@ def log_prediction(data, prediction, probability):
     record = {
         "timestamp": str(datetime.now()),
         "input": data,
-        "prediction": prediction,
-        "probability": probability
+        "prediction": int(prediction),
+        "probability": float(probability)
     }
 
     with open(PREDICTION_LOG, "a") as f:
@@ -115,6 +127,8 @@ def log_prediction(data, prediction, probability):
 
 
 def update_metrics(probability):
+
+    probability = float(probability)
 
     metrics["predictions_made"] += 1
 
@@ -165,7 +179,7 @@ def model_info():
 
     return {
         "model_type": type(model).__name__,
-        "features_expected": EXPECTED_FEATURES
+        "features_expected": expected_features
     }
 
 # --------------------------------------------------
@@ -180,8 +194,9 @@ def model_info():
 def model_schema():
 
     return {
-        "expected_features": EXPECTED_FEATURES,
-        "categorical_features": CATEGORICAL_FEATURES
+        "expected_features": expected_features,
+        "categorical_cols": categorical_cols,
+        "numeric_cols": numeric_cols
     }
 
 # --------------------------------------------------
@@ -200,9 +215,12 @@ def predict(data: StudentInput):
         payload = data.model_dump()
 
         df = pd.DataFrame([payload])
-        df = df[EXPECTED_FEATURES]
+        df = df[expected_features]
 
-        probability = model.predict_proba(df)[0][1]
+        #Aplica os binnings
+        df_model = apply_numeric_binning(df, load_dict(artifacts_dir / "binning_dict.json"))
+
+        probability = model.predict_proba(df_model)[0][1].item()
         prediction = int(probability >= 0.5)
 
         log_prediction(payload, prediction, probability)
@@ -233,9 +251,12 @@ def batch_predict(data: list[StudentInput]):
         payload = [d.model_dump() for d in data]
 
         df = pd.DataFrame(payload)
-        df = df[EXPECTED_FEATURES]
+        df = df[expected_features]
 
-        probabilities = model.predict_proba(df)[:,1]
+        #Aplica os binnings
+        df_model = apply_numeric_binning(df, load_dict(artifacts_dir / "binning_dict.json"))
+
+        probabilities = model.predict_proba(df_model)[:,1]
         predictions = (probabilities >= 0.5).astype(int)
 
         results = []
@@ -254,85 +275,6 @@ def batch_predict(data: list[StudentInput]):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --------------------------------------------------
-# EXPLAIN
-# --------------------------------------------------
-@router.post(
-    "/explain",
-    summary="Explicação da decisão do modelo",
-    description="""
-Mostra quais variáveis mais influenciaram a decisão do modelo para um aluno.
-
-Retorna:
-- prediction → classe prevista
-- probability → probabilidade da classe positiva
-- top_factors → variáveis que mais impactaram a decisão
-"""
-)
-def explain(data: StudentInput):
-
-    try:
-
-        payload = data.model_dump()
-
-        df = pd.DataFrame([payload])
-        df = df[EXPECTED_FEATURES]
-
-        # -------------------------
-        # PREDIÇÃO
-        # -------------------------
-
-        probability = model.predict_proba(df)[0][1]
-        prediction = int(probability >= 0.5)
-
-        # -------------------------
-        # PREPROCESSAMENTO
-        # -------------------------
-
-        preprocessor = model.steps[0][1]
-        X_processed = preprocessor.transform(df)
-
-        # nomes das features após transformação
-        feature_names = preprocessor.get_feature_names_out()
-
-        # -------------------------
-        # COEFICIENTES DO MODELO
-        # -------------------------
-
-        classifier = model.steps[-1][1]
-        coef = classifier.coef_[0]
-
-        impacts = X_processed[0] * coef
-
-        feature_impacts = []
-
-        for i, impact in enumerate(impacts):
-
-            clean_name = feature_names[i].replace("num__", "").replace("cat__", "")
-
-            feature_impacts.append({
-                "feature_index": i,
-                "feature": clean_name,
-                "impact": float(impact)
-            })
-
-        # ordena pelo impacto absoluto
-        feature_impacts = sorted(
-            feature_impacts,
-            key=lambda x: abs(x["impact"]),
-            reverse=True
-        )
-
-        top = feature_impacts[:5]
-
-        return {
-            "prediction": prediction,
-            "probability": float(probability),
-            "top_factors": top
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 # --------------------------------------------------
 # FEATURE IMPORTANCE
@@ -346,35 +288,28 @@ def feature_importance():
 
     try:
 
-        # pega preprocessador
-        preprocessor = model.steps[0][1]
-
-        # pega nomes das features transformadas
-        feature_names = preprocessor.get_feature_names_out()
-
-        # pega modelo final
+        # pega modelo final dentro do pipeline
         classifier = model.steps[-1][1]
 
-        # coeficientes da regressão
-        coef = classifier.coef_[0]
+        booster = classifier.get_booster()
+
+        scores = booster.get_score(importance_type="gain")
 
         importance = []
 
-        for i, value in enumerate(coef):
+        for feature, value in scores.items():
 
-            clean_name = feature_names[i].replace("num__", "").replace("cat__", "")
+            clean_name = feature.replace("num__", "").replace("cat__", "")
 
-            # melhora visual para variáveis categóricas
             if "_" in clean_name:
                 parts = clean_name.split("_", 1)
                 clean_name = f"{parts[0]} = {parts[1]}"
 
             importance.append({
                 "feature": clean_name,
-                "importance": float(abs(value))
+                "importance": float(value)
             })
 
-        # ordena do mais importante
         importance = sorted(
             importance,
             key=lambda x: x["importance"],
@@ -383,11 +318,64 @@ def feature_importance():
 
         return {
             "model": type(classifier).__name__,
-            "top_features": importance[:10]
+            "importance_type": "gain",
+            "top_features": importance[:10],
+            "total_features": len(importance)
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --------------------------------------------------
+# SIMULAÇÃO
+# --------------------------------------------------
+
+@router.get(
+    "/simulate-student",
+    summary="Simulação de aluno",
+    description="Gera um aluno aleatório e executa uma predição."
+)
+def simulate_student():
+
+    student = {
+    "IDADE_ALUNO": random.randint(11, 22),
+    "ANO_INGRESSO": random.randint(2018, 2024),
+    "CG": random.uniform(0, 10),
+    "CF": random.uniform(0, 10),
+    "CT": random.uniform(0, 10),
+    "QTDE_AVAL": random.randint(1, 6),
+    "IAA": random.uniform(0, 10),
+    "IEG": random.uniform(0, 10),
+    "IPS": random.uniform(0, 10),
+    "NOTA_MAT": random.uniform(0, 10),
+    "NOTA_PORT": random.uniform(0, 10),
+    "NOTA_ING": random.uniform(0, 10),
+    "IPV": random.uniform(0, 10),
+    "IPP": random.uniform(0, 10),
+    "PEDRA_ORDINAL": random.randint(1, 4),
+    "NOTA_MEDIA": random.uniform(0, 10),
+    "TEMPO_PM": random.randint(0, 10),
+    "FASE": random.choice(["1", "2", "3"]),
+    "TURMA": random.choice(["A", "B", "C"])
+    }
+
+    df = pd.DataFrame([student])
+    df = df[expected_features]
+
+    #Aplica os binnings
+    df_model = apply_numeric_binning(df, load_dict(artifacts_dir / "binning_dict.json"))
+
+    probability = model.predict_proba(df_model)[0][1].item()
+    prediction = int(probability >= 0.5)
+
+    log_prediction(student, prediction, probability)
+    update_metrics(probability)
+
+    return {
+        "generated_student": student,
+        "prediction": int(prediction),
+        "probability": float(probability)
+    }
 
 # --------------------------------------------------
 # METRICS
@@ -406,45 +394,4 @@ def get_metrics():
         "predictions_made": metrics["predictions_made"],
         "avg_probability": metrics["avg_probability"],
         "uptime": str(uptime)
-    }
-
-# --------------------------------------------------
-# SIMULAÇÃO
-# --------------------------------------------------
-
-@router.get(
-    "/simulate-student",
-    summary="Simulação de aluno",
-    description="Gera um aluno aleatório e executa uma predição."
-)
-def simulate_student():
-
-    student = {
-        "IAA": random.uniform(0,10),
-        "IEG": random.uniform(0,10),
-        "IPS": random.uniform(0,10),
-        "IDA": random.uniform(0,10),
-        "IPP": random.uniform(0,10),
-        "IPV": random.uniform(0,10),
-        "IAN": random.uniform(0,10),
-        "DEFASAGEM": random.randint(0,1),
-        "NOTA_PORT": random.uniform(0,10),
-        "NOTA_MAT": random.uniform(0,10),
-        "NOTA_ING": random.uniform(0,10),
-        "ANO_INGRESSO": random.randint(2018,2024),
-        "QTDE_AVAL": random.randint(1,6),
-        "FASE": random.choice(["1","2","3"]),
-        "TURMA": random.choice(["A","B","C"])
-    }
-
-    df = pd.DataFrame([student])
-    df = df[EXPECTED_FEATURES]
-
-    probability = model.predict_proba(df)[0][1]
-    prediction = int(probability >= 0.5)
-
-    return {
-        "generated_student": student,
-        "prediction": prediction,
-        "probability": probability
     }

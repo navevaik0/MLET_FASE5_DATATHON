@@ -65,7 +65,6 @@ def main():
         add_missing_flags=True
     )
 
-
     #Feature engineering
     #Aplica as transformações iniciais
     df_fe = (
@@ -101,6 +100,7 @@ def main():
     save_list(numeric_cols, artifacts_dir /"numeric_cols.json")
     save_list(numeric_cols_cat, artifacts_dir /"numeric_cols_cat.json")
     save_list(categorical_cols, artifacts_dir /"categorical_cols.json")
+    
     #Salva a base tratada
     df_fe.to_excel(data_dir/'data_processed.xlsx', index=False)
     
