@@ -49,6 +49,7 @@ PREDICTION_LOG = LOG_PATH / "predictions.json"
 
 REFERENCE_DATA = MONITORING_PATH / "reference.csv"
 PRODUCTION_DATA = MONITORING_PATH / "production.csv"
+PRODUCTION_SAMPLE_JSON = MONITORING_PATH / "production_students.json"
 DRIFT_REPORT = MONITORING_PATH / "drift_report.html"
 
 metrics = {
@@ -109,6 +110,30 @@ class StudentInput(BaseModel):
             }
         }
 
+
+class StudentInputBatch(BaseModel):
+
+    IDADE_ALUNO: int
+    ANO_INGRESSO: int
+    CG: float
+    CF: float
+    CT: float
+    QTDE_AVAL: int
+    IAA: float
+    IEG: float
+    IPS: float
+    NOTA_MAT: float
+    NOTA_PORT: float
+    NOTA_ING: float
+    IPV: float
+    IPP: float
+    PEDRA_ORDINAL: int
+    NOTA_MEDIA: float
+    TEMPO_PM: int
+    FASE: str
+    TURMA: str
+        
+
 # --------------------------------------------------
 # FUNÇÕES AUXILIARES
 # --------------------------------------------------
@@ -142,7 +167,8 @@ def save_production_data(payload):
 
     df = pd.DataFrame([payload])
 
-    if not PRODUCTION_DATA.exists():
+    # escreve cabeçalho se arquivo não existir ou estiver vazio
+    if not PRODUCTION_DATA.exists() or PRODUCTION_DATA.stat().st_size == 0:
         df.to_csv(PRODUCTION_DATA, index=False)
     else:
         df.to_csv(PRODUCTION_DATA, mode="a", header=False, index=False)
@@ -238,13 +264,63 @@ def predict(data: StudentInput):
 # --------------------------------------------------
 # BATCH PREDICT
 # --------------------------------------------------
+from fastapi import Body
 
 @router.post(
     "/batch-predict",
     summary="Predição em lote",
     description="Realiza predição para vários alunos ao mesmo tempo."
 )
-def batch_predict(data: list[StudentInput]):
+def batch_predict(
+    data: list[StudentInputBatch] = Body(
+        examples=[
+            [
+                {
+                    "IDADE_ALUNO": 20,
+                    "ANO_INGRESSO": 2022,
+                    "CG": 8.5,
+                    "CF": 7.8,
+                    "CT": 8.2,
+                    "QTDE_AVAL": 4,
+                    "IAA": 7.5,
+                    "IEG": 6.8,
+                    "IPS": 7.1,
+                    "NOTA_MAT": 7.0,
+                    "NOTA_PORT": 8.0,
+                    "NOTA_ING": 7.0,
+                    "IPV": 6.5,
+                    "IPP": 7.0,
+                    "PEDRA_ORDINAL": 1,
+                    "NOTA_MEDIA": 7.5,
+                    "TEMPO_PM": 5,
+                    "FASE": "2",
+                    "TURMA": "A"
+                },
+                {
+                    "IDADE_ALUNO": 13,
+                    "ANO_INGRESSO": 2023,
+                    "CG": 9.5,
+                    "CF": 3.8,
+                    "CT": 4.2,
+                    "QTDE_AVAL": 8,
+                    "IAA": 1.5,
+                    "IEG": 5.8,
+                    "IPS": 3.1,
+                    "NOTA_MAT": 6.0,
+                    "NOTA_PORT": 7.0,
+                    "NOTA_ING": 6.0,
+                    "IPV": 3.5,
+                    "IPP": 4.0,
+                    "PEDRA_ORDINAL": 2,
+                    "NOTA_MEDIA": 3.5,
+                    "TEMPO_PM": 4,
+                    "FASE": "3",
+                    "TURMA": "B"
+                }
+            ]
+        ]
+    )
+):
 
     try:
 
@@ -253,74 +329,32 @@ def batch_predict(data: list[StudentInput]):
         df = pd.DataFrame(payload)
         df = df[expected_features]
 
-        #Aplica os binnings
+        # Aplica os binnings
         df_model = apply_numeric_binning(df, load_dict(artifacts_dir / "binning_dict.json"))
 
-        probabilities = model.predict_proba(df_model)[:,1]
+        probabilities = model.predict_proba(df_model)[:, 1]
         predictions = (probabilities >= 0.5).astype(int)
 
         results = []
 
         for i in range(len(df)):
+
+            prediction = int(predictions[i])
+            probability = float(probabilities[i])
+            student_input = payload[i]
+
+            log_prediction(student_input, prediction, probability)
+            update_metrics(probability)
+            save_production_data(student_input)
+
             results.append({
-                "prediction": int(predictions[i]),
-                "probability": float(probabilities[i])
+                "prediction": prediction,
+                "probability": probability
             })
 
         return {
             "total_predictions": len(results),
             "results": results
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# --------------------------------------------------
-# FEATURE IMPORTANCE
-# --------------------------------------------------
-@router.get(
-    "/feature-importance",
-    summary="Importância das variáveis",
-    description="Mostra quais variáveis são mais importantes para o modelo."
-)
-def feature_importance():
-
-    try:
-
-        # pega modelo final dentro do pipeline
-        classifier = model.steps[-1][1]
-
-        booster = classifier.get_booster()
-
-        scores = booster.get_score(importance_type="gain")
-
-        importance = []
-
-        for feature, value in scores.items():
-
-            clean_name = feature.replace("num__", "").replace("cat__", "")
-
-            if "_" in clean_name:
-                parts = clean_name.split("_", 1)
-                clean_name = f"{parts[0]} = {parts[1]}"
-
-            importance.append({
-                "feature": clean_name,
-                "importance": float(value)
-            })
-
-        importance = sorted(
-            importance,
-            key=lambda x: x["importance"],
-            reverse=True
-        )
-
-        return {
-            "model": type(classifier).__name__,
-            "importance_type": "gain",
-            "top_features": importance[:10],
-            "total_features": len(importance)
         }
 
     except Exception as e:
@@ -376,7 +410,71 @@ def simulate_student():
         "prediction": int(prediction),
         "probability": float(probability)
     }
+import json
 
+
+# --------------------------------------------------
+# 100-casos
+# --------------------------------------------------
+
+@router.get(
+    "/predict-amostra_100_casos",
+    summary="Predição da amostra de 100 alunos",
+    description="Lê o arquivo production_students.json e executa predições para todos os alunos"
+)
+def predict_production():
+
+    try:
+
+        if not PRODUCTION_SAMPLE_JSON.exists():
+            raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+
+        if PRODUCTION_SAMPLE_JSON.stat().st_size == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="production_students.json está vazio"
+            )
+
+        with open(PRODUCTION_SAMPLE_JSON, "r", encoding="utf-8") as f:
+            students = json.load(f)
+
+        df = pd.DataFrame(students)
+
+        df = df[expected_features]
+
+        df_model = apply_numeric_binning(
+            df,
+            load_dict(artifacts_dir / "binning_dict.json")
+        )
+
+        probabilities = model.predict_proba(df_model)[:, 1]
+        predictions = (probabilities >= 0.5).astype(int)
+
+        results = []
+
+        for i in range(len(df)):
+
+            payload = df.iloc[i].to_dict()
+            prediction = int(predictions[i])
+            probability = float(probabilities[i])
+
+            log_prediction(payload, prediction, probability)
+            update_metrics(probability)
+            save_production_data(payload)   
+
+            results.append({
+                "prediction": prediction,
+                "probability": probability
+            })
+
+        return {
+            "total_students": len(df),
+            "results": results[:100]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 # --------------------------------------------------
 # METRICS
 # --------------------------------------------------

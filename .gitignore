@@ -1,26 +1,26 @@
 # Python
 __pycache__/
-*.py[cod]
+#*.py[cod]
 .venv/
 venv/
 env/
 
 # Jupyter
-.ipynb_checkpoints/
+#.ipynb_checkpoints/
 
 # VS Code
-.vscode/
+#.vscode/
 
 # Data
-*.xlsx
-*.csv
-*.parquet
-data/
+#*.xlsx
+#*.csv
+#*.parquet
+#data/
 
 # OS
-.DS_Store
-Thumbs.db
+#.DS_Store
+#Thumbs.db
 
 # Modelos
-app/model/*.joblib
-app/model/*.pkl
+#app/model/*.joblib
+#app/model/*.pkl
